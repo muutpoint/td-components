@@ -82,23 +82,36 @@ unused *Edge* parameters are gone.
 
 `texture-instancer/texture_instancer.tox` · inputs: points POP, shape POP (optional) · outputs: render TOP, texture array TOP, points POP
 
-Point it at a folder (*Texture Folder*). Every image or movie is fitted into a square, packed into one atlas
-and turned into a 2D texture array, one layer per file. Each point gets a quad with its own layer, size,
-rotation and colour, written by one GLSL POP. The render uses the built-in orbit camera
-(TouchDesigner's `cameraViewport`) or your own (*Camera*).
+Point it at a folder (*Texture Folder*). The images are loaded a few per frame (*Load Budget*) into one 2D
+texture array, one layer per image, and each one is measured once (aspect, brightness, hue, saturation, alpha
+coverage). The set is put in an order (*Texture Order*), and each point picks its place in that order by
+*Assign By*: point number, random, any point attribute, a noise field, or a guide image (photo-mosaic). One
+GLSL POP writes every instance's layer, size, rotation, facing, position and colour, so it all runs on the
+GPU. Every parameter that names an attribute is a menu of the input's attributes and components (`P.y`,
+`N.x`, `P length`, plus Point Index and Random); value ranges are found automatically. The render uses the
+built-in orbit camera (TouchDesigner's `cameraViewport`) or your own (*Camera*); render `geo_instances`
+yourself for your own lighting.
 
-- **Textures**: Texture Folder, Maximum Textures, Texture Size, Play Movies / GIFs, Reload Folder, Blending, Alpha Threshold, Edges (off / only / over) with strength and colour
-- **Sorting**: Texture Order (sequential, random, along X / Y / Z, from centre), Seed, Shuffle, Auto Shuffle (+ interval), Cycle Speed
-- **Scale and animation**: Size, Size Mode (constant, noise, wave), Random Variance, Noise Frequency / Speed, Wave Speed / Axis / Wavelength / Minimum, Drift, Drift Frequency, Face Camera, Random Rotate, Spin
-- **Color**: Color Mode (off, random from palette, one per texture, image at point XY), Palette / Image TOP, Tint Amount, Use Point Color
+- **Textures**: Texture Folder, Include Subfolders, Name Filter, Maximum Textures, Texture Size, Fit (keep image aspect / crop / stretch), Load Budget, Reload Folder, Texture Order (name, date, random, brightness, hue, saturation, coverage, aspect), Order Seed, Reverse, Use Range, Outline (off / outline / outline only) with width, softness and colour, Textures Loaded, Status
+- **Sorting**: Assign By (sequential, random, attribute, noise field, photo-mosaic), Attribute, Auto / Manual Range, Noise Frequency / Speed, Guide Image, Map Image By (bounds XY / XZ / ZY, point Tex), Match (brightness / hue), Stretch to Set, Offset, Repeat, Steps, Jitter, Seed, Shuffle, Auto Shuffle, Flip Speed, Flip Offset per Instance
+- **Scale**: Size, Stretch X / Y, Random Variance, Scale By (attribute, noise, wave along an attribute), Size at Min / Max, Wavelength, Speed, Reveal (0-1 grow-in along texture key, point index, random or the scale attribute), Reveal Softness, Reverse
+- **Rotate**: Facing (camera, along an attribute such as N or a world axis, random), Up Attribute, Push Along Facing Attribute, Random Rotate, Rotate by Attribute (degrees across its range), Spin, Random Spin Direction, Random Tilt
+- **Position**: Distribution (input points, scatter on surface, scatter in volume), Scatter Count / Seed, Offset, Random Offset, Drift (amount, frequency, speed), Density, Cull by Attribute (keep above / below a threshold)
+- **Color**: Color Mode (off, random from palette, one per texture, palette by attribute, image at point, point colour), Palette / Image TOP, Color Amount, Tint, Opacity, Blend (cutout, soft and depth sorted, additive), Alpha Threshold
 - **Scene**: Resolution, Background Colour / Alpha, Camera, Anti-Alias
 
-Changes from v1: input is a POP (v1 took a SOP and went through CHOPs); no 30-texture limit (a test folder of
-204 GIFs runs at about 1.5 ms CPU per frame); textures keep their aspect ratio; the ffmpeg palette step is
-replaced by sampling a TOP directly; per-instance rotation, spin, drift and camera-facing are new; v1's
-broken instance setup (mismatched instance counts, hard-coded `/project1` paths, render size taken from
-parameters that didn't exist) is gone. *Play Movies / GIFs* makes the atlas rebuild every frame, which costs
-a lot with hundreds of files; leave it off for stills. The first load of a big folder takes a few seconds.
+Changes from v2 (v3): loading no longer makes one Movie File In per file plus an atlas: images go straight
+into the texture array (281 PNGs in about 7 s, 157 3464 px JPEGs in about 16 s, without freezing TouchDesigner),
+memory is count × size² × 4 bytes (157 at 256 px = 41 MB); attribute-driven texture choice, size, rotation,
+facing, reveal, culling and colour are new, as are brightness / hue ordering, the photo-mosaic, the flip
+book, scatter on surface or volume, the soft depth-sorted blend and the outline; quads keep the image's shape
+without padding; animation uses speed-integrated clocks, so a still setup does not recook (5184 instances:
+about 1 ms CPU per frame, almost all of it the render). Movies and GIFs load their first frame only (v2's
+*Play Movies / GIFs* rebuilt the atlas every frame).
+
+Changes from v1 (v2): input is a POP (v1 took a SOP and went through CHOPs); the ffmpeg palette step is
+replaced by sampling a TOP directly; v1's broken instance setup (mismatched instance counts, hard-coded
+`/project1` paths, render size taken from parameters that didn't exist) is gone.
 
 ## Repo layout
 
@@ -111,7 +124,7 @@ a lot with hundreds of files; leave it off for stills. The first load of a big f
 | `halftone/halftone.tox` | Halftone component. |
 | `halftone/preview.jpg` | Preview (`Jellybeans.1.jpg`, CMYK). |
 | `texture-instancer/texture_instancer.tox` | Texture Instancer component. |
-| `texture-instancer/preview.jpg` | Preview (built-in shapes, random palette colours). |
+| `texture-instancer/preview.jpg` | Preview (built-in shapes scattered on the demo sphere, ordered and sized by height, coloured by X). |
 | `glsl/flipbook_page.glsl` | FlipBook pass 1: one page (paper, notebook, jitter, grain, blend). |
 | `glsl/flipbook_flip.glsl` | FlipBook pass 2: the page-flip ghost. |
 | `glsl/flipbook_vignette.glsl` | FlipBook lens-blur mask. |
@@ -120,8 +133,10 @@ a lot with hundreds of files; leave it off for stills. The first load of a big f
 | `glsl/paint_grade.glsl` | Paint pass 3: tone steps, colour, outline, paper, mask. |
 | `glsl/halftone.glsl` | Halftone screen. |
 | `glsl/halftone_trail.glsl` | Halftone glow trails (feedback). |
-| `glsl/instancer_attribs.glsl` | Texture Instancer GLSL POP: per-point layer, size, colour, rotation, facing, drift. |
-| `glsl/instancer_array.glsl` | Texture Instancer: atlas to 2D texture array. |
+| `glsl/instancer_keys.glsl` | Texture Instancer GLSL POP 1: copies the picked attributes into fixed names (the pickers write `#define`s on top). |
+| `glsl/instancer_attribs.glsl` | Texture Instancer GLSL POP 2: per-point layer, size, rotation, facing, position, reveal, culling, colour. |
+| `glsl/instancer_edge.glsl` | Texture Instancer: outline around each layer's alpha shape. |
+| `py/instancer_ext.py` | Texture Instancer extension: folder loading, measuring, texture order, attribute menus. |
 | `assets/flipbook/paper_atlas.png` | The ten paper frames (5 × 2 grid, mono). Embedded in `flipbook.tox`. |
 | `assets/flipbook/notebook.png` | Notebook sheet (mono). Embedded in `flipbook.tox`. |
 | `assets/paint/paper.png` | Paper texture (2048 px, mono). Embedded in `paint.tox`. |
